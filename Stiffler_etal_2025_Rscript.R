@@ -781,6 +781,8 @@ SIMPER_boxplot <- ggplot(SIMPER_bMAGs, aes(x=sample_type, y=genomes_per_million_
   colour =factor(sample_type, level=c('CT-PreInd','CT-12PostInd','MC-PreInd','MC-12PostInd')))) + 
   scale_x_discrete(limits=c('CT-PreInd','CT-12PostInd','MC-PreInd','MC-12PostInd')) + geom_boxplot() + 
   theme_bw() + scale_colour_manual(values=mycolors4) + scale_y_continuous(trans ='log10') + removeGrid(x = TRUE) +
+  # stat_compare here was only used to draw lines for comparisons, the t.test p-values were replaced with
+  # p-values from the SIMPER analysis manually
   stat_compare_means(aes(group = sample_type),comparisons = 
   list(c("MC-PreInd", "MC-12PostInd"), c("MC-12PostInd", "CT-12PostInd"), c("CT-PreInd", "MC-PreInd")), 
   method = "t.test", label = "p.signif") + facet_wrap(~Genomic_bins) 
