@@ -5,9 +5,65 @@ rm(list = ls())
 library(readxl); library(pheatmap); library(tidyr); library(ggplot2); library(ggExtra); library(dplyr); library(ggpubr);
 library(vegan); library(pairwiseAdonis); library(genoPlotR); library(stringr); library(tidyverse); library(IRanges)
 
-############### Figure 1: Mitomycin C induces pelagic Sargassum biofilm-associated prophages ###############
-##### Figure 1b: Virus-to-host Ratio Heatmap #####
-VHR <- read_excel('/path/to/Supplemental_DataSheet4.xlsx')
+############### Figure 1: Sargassum-derived biofilm community members are present in situ  ###############
+##### Figure 1d: Biofilm induction temperate viruses are more abundant in situ  #####
+Biofilm_viruses_2021_metagenomes <- read_excel ("/path/to/Supplemental_DataSheet3.xlsx")
+
+Biofilm_viruses_abudance_medians <- Biofilm_viruses_abudance_info %>% group_by(Prediction, genome_id) %>% summarize(
+  genome_median = median(FRACTIONAL_ABUNDANCE))
+
+ggplot(Biofilm_viruses_abudance_medians, aes(x=genome_median, y=Prediction, fill = Prediction)) + 
+  geom_violin() + geom_boxplot(width=0.1, fill = 'white') + scale_x_continuous(trans = 'log10') +
+  scale_fill_manual(values= c("#ba5619", "#90AFA0")) + theme_bw()
+
+wilcox.test(FRACTIONAL_ABUNDANCE ~ Prediction, data = Biofilm_viruses_abudance_info)
+
+##### Figure 1e: Biofilm induction bMAGs are present in situ #####
+bMAG_2021_metagenomes <- read_excel("/path/to/Supplemental_DataSheet4.xlsx")
+
+bMAG_2021_metagenomes_longer <- bMAG_2021_metagenomes %>% select(Genomic_bins, `Sargasso-1`, `Sargasso-2`,
+  `Sargasso-3`, `Sargasso-4`, `Sargasso-6`,`Seawater-Sterivex1`, `Seawater-Sterivex2`, `Seawater-Sterivex3`, 
+  `Seawater-Sterivex4`, `Seawater-Sterivex5`) %>% 
+  pivot_longer(!Genomic_bins,  names_to = "replicate", values_to = "genomes_per_million_reads")
+
+bMAG_2021_metagenomes_longer$sample_type <- gsub("-.*", "", bMAG_2021_metagenomes_longer$replicate)
+
+bMAG_2021_metagenome_stats <- bMAG_2021_metagenomes_longer %>% group_by(Genomic_bins, sample_type) %>% summarize(
+  n = n(),
+  xbar = mean(genomes_per_million_reads),
+  median = median(genomes_per_million_reads),
+  sd = sd(genomes_per_million_reads),
+  se = sd/sqrt(n))
+
+bMAG_2021_metagenome_stats_tax <- bMAG_2021_metagenome_stats %>%
+  left_join(bMAG_2021_metagenomes %>% select(Genomic_bins, gtdb_tk_taxonomy), by = c("Genomic_bins" = "Genomic_bins"))
+
+Sargassum <- bMAG_2021_metagenome_stats_tax %>% filter(sample_type == "Sargasso") 
+Seawater <- bMAG_2021_metagenome_stats_tax %>% filter(sample_type == "Seawater") 
+
+Sargassum_bMAG_tax_filt <- Sargassum %>% filter(xbar > 0.5)
+
+Sargassum_05_bMAG_IDs <- Sargassum_bMAG_tax_filt %>% select(Genomic_bins)
+
+Seawater_bMAG_tax_filt <- merge(Seawater, Sargassum_05_bMAG_IDs, by = "Genomic_bins") %>% 
+  select(Genomic_bins, sample_type, n, xbar, median, sd, se, gtdb_tk_taxonomy)
+
+mycolors7 = c('#948816',"#e0dd6c",'#ba5619','#755e6b', "#90AFA0",'#cefae4')
+
+ggplot(Sargassum_bMAG_tax_filt, aes(x=xbar, y=reorder(Genomic_bins, -xbar), fill = gtdb_tk_taxonomy)) + 
+  geom_bar(stat = "identity") + geom_errorbar(aes(x=xbar, y=Genomic_bins, xmin=xbar-se, xmax=xbar+se), 
+  position=position_dodge(.9), width = 0.5) + theme_bw() + scale_fill_manual(values= mycolors7) + xlim(-0.5, 30)
+
+ggplot(Seawater_bMAG_tax_filt, aes(x=xbar, y=factor(Genomic_bins, levels = c('MC-PreInd_bin.2','CT-PreInd_bin.4',
+  'CT-12PostInd_bin.3', 'CT-PreInd_bin.8','CT-12PostInd_bin.10', 'CT-PreInd_bin.6', 'MC-12PostInd_bin.1',
+  'MC-PreInd_bin.3','CT-12PostInd_bin.1','CT-PreInd_bin.2','MC-12PostInd_bin.5','MC-PreInd_bin.8',
+  'MC-12PostInd_bin.7','CT-PreInd_bin.3', 'MC-PreInd_bin.1', 'CT-12PostInd_bin.5','CT-PreInd_bin.7')), fill = gtdb_tk_taxonomy)) + 
+  geom_bar(stat = "identity") + geom_errorbar(aes(x=xbar, y=Genomic_bins, xmin=xbar-se, xmax=xbar+se), 
+  position=position_dodge(.9), width = 0.5) + theme_bw() + scale_fill_manual(values= mycolors7) + xlim(-0.5, 30)
+
+############### Figure 2: Mitomycin C induces pelagic Sargassum biofilm-associated prophages ###############
+##### Figure 2b: Virus-to-host Ratio Heatmap #####
+VHR <- read_excel('/path/to/Supplemental_DataSheet6.xlsx')
 
 VHR$prophage_host_ratio <- as.numeric(VHR$prophage_host_ratio)
 
@@ -51,45 +107,49 @@ pairwise.adonis2(VHR.dist~sample_type, data=VHR_wide, permutations=9999, methods
 VHR.simper <- simper(VHR_matrix, VHR_wide$sample_type, permutations = 9999)
 VHR.simper.summary <- summary(VHR.simper, ordered = TRUE, digits = max(3,getOption("digits") - 3))
 
-##### Figure 1c: Prophage genome plots #####
-phage_annotations <- read_excel('/path/to/Supplemental_DataSheet5.xlsx')
+##### Figure 2c: Prophage genome plots #####
+phage_annotations <- read_excel('/path/to/Supplemental_DataSheet7.xlsx')
 head(phage_annotations)
 
-phage_annotations  <- phage_annotations  %>% mutate(col = ifelse(group == 'Hypothetical','#DDDDDD',col))
-phage_annotations  <- phage_annotations  %>% mutate(fill = ifelse(group == 'Hypothetical','#DDDDDD',fill))
+phage_annotations <- phage_annotations %>% mutate(col = ifelse(functional_category == 'unknown function','#DDDDDD',col))
+phage_annotations <- phage_annotations %>% mutate(fill = ifelse(functional_category == 'unknown function','#DDDDDD',fill))
 
-phage_annotations  <- phage_annotations  %>% mutate(col = ifelse(group == 'Replication','#ba5619',col))
-phage_annotations  <- phage_annotations  %>% mutate(fill = ifelse(group == 'Replication','#ba5619',fill))
+phage_annotations <- phage_annotations %>% mutate(col = ifelse(functional_category == 'DNA, RNA, and nucleotide metabolism','#ba5619',col))
+phage_annotations <- phage_annotations %>% mutate(fill = ifelse(functional_category == 'DNA, RNA, and nucleotide metabolism','#ba5619',fill))
 
-phage_annotations  <- phage_annotations  %>% mutate(col = ifelse(group == 'Temperate life cycle','#664C5B',col))
-phage_annotations  <- phage_annotations  %>% mutate(fill = ifelse(group == 'Temperate life cycle','#664C5B',fill))
+phage_annotations <- phage_annotations %>% mutate(col = ifelse(functional_category == 'transcription regulation','#d69a75',col))
+phage_annotations <- phage_annotations %>% mutate(fill = ifelse(functional_category == 'transcription regulation','#d69a75',fill))
 
-phage_annotations  <- phage_annotations  %>% mutate(col = ifelse(group == 'Host evasion','#90AFA0',col))
-phage_annotations  <- phage_annotations  %>% mutate(fill = ifelse(group == 'Host evasion','#90AFA0',fill))
+phage_annotations <- phage_annotations %>% mutate(col = ifelse(functional_category == 'lysis','#664C5B',col))
+phage_annotations <- phage_annotations %>% mutate(fill = ifelse(functional_category == 'lysis','#664C5B',fill))
 
-phage_annotations  <- phage_annotations  %>% mutate(col = ifelse(group == 'Other','#cefae4',col))
-phage_annotations  <- phage_annotations  %>% mutate(fill = ifelse(group == 'Other','#cefae4',fill))
+phage_annotations <- phage_annotations %>% mutate(col = ifelse(functional_category == 'integration and excision','#2a061b',col))
+phage_annotations <- phage_annotations %>% mutate(fill = ifelse(functional_category == 'integration and excision','#2a061b',fill))
 
-phage_annotations  <- phage_annotations  %>% mutate(col = ifelse(group == 'Packaging and Lysis','#e0dd6c',col))
-phage_annotations  <- phage_annotations  %>% mutate(fill = ifelse(group == 'Packaging and Lysis','#e0dd6c',fill))
+phage_annotations <- phage_annotations %>% mutate(col = ifelse(functional_category == 'moron, auxiliary metabolic gene and host takeover','#cefae4',col))
+phage_annotations <- phage_annotations %>% mutate(fill = ifelse(functional_category == 'moron, auxiliary metabolic gene and host takeover','#cefae4',fill))
 
-phage_annotations  <- phage_annotations  %>% mutate(col = ifelse(group == 'Structural','#948816',col))
-phage_annotations  <- phage_annotations  %>% mutate(fill = ifelse(group == 'Structural','#948816',fill))
+phage_annotations <- phage_annotations %>% mutate(col = ifelse(functional_category == 'other','#90AFA0',col))
+phage_annotations <- phage_annotations %>% mutate(fill = ifelse(functional_category == 'other','#90AFA0',fill))
 
+phage_annotations <- df %>% mutate(col = ifelse(functional_category == 'head and packaging','#e0dd6c',col))
+phage_annotations <- df %>% mutate(fill = ifelse(functional_category == 'head and packaging','#e0dd6c',fill))
 
-####### Fig. 1c Prophage genome plots #######
+phage_annotations <- phage_annotations %>% mutate(col = ifelse(functional_category == 'tail','#948816',col))
+phage_annotations <- phage_annotations %>% mutate(fill = ifelse(functional_category == 'tail','#948816',fill))
+
 #seperate into the different genomes 
 k127_162855 <- phage_annotations %>% filter(name == "MC-12PostInd-BF1_megahit_k127_555745_flag_0_multi_68.4010_len_7549_extended_partial")
-k127_567814 <- phage_annotations %>% filter(name == "CT-12PostInd-BF4_megahit_k127_431539_flag_0_multi_14.0000_len_69873_extended_partial")
-k127_233705 <- phage_annotations %>% filter(name == "MC-12PostInd-BF1_megahit_k127_558051_flag_0_multi_34.4574_len_15183")
+k127_431539 <- phage_annotations %>% filter(name == "CT-12PostInd-BF4_megahit_k127_431539_flag_0_multi_14.0000_len_69873_extended_partial")
+k127_558051 <- phage_annotations %>% filter(name == "MC-12PostInd-BF1_megahit_k127_558051_flag_0_multi_34.4574_len_15183")
 k127_173951 <- phage_annotations %>% filter(name == "CT-12PostInd-BF1_megahit_k127_173951_flag_0_multi_10693.0828_len_47076|provirus_16859_46428")
 
 # pull out the coumns necessary for genoPlotR 
 # name, start, end, strand, col, fill, lty, lwd, pch, cex, gene_type
 # and convert them to a data frame
 k127_162855_df2 <- data.frame(k127_162855[,2:12])
-k127_567814_df2 <- data.frame(k127_567814[,2:12])
-k127_233705_df2 <- data.frame(k127_233705[,2:12])
+k127_431539_df2 <- data.frame(k127_431539[,2:12])
+k127_558051_df2 <- data.frame(k127_558051[,2:12])
 k127_173951_df2 <- data.frame(k127_173951[,2:12])
 
 # turn the data frame above into the dna_seg object and then a string
@@ -97,10 +157,10 @@ k127_173951_df2 <- data.frame(k127_173951[,2:12])
 dna_seg1.1 <- dna_seg(k127_162855_df2)
 dna_segs.1 <- list(dna_seg1.1)
 
-dna_seg1.2 <- dna_seg(k127_567814_df2)
+dna_seg1.2 <- dna_seg(k127_431539_df2)
 dna_segs.2 <- list(dna_seg1.2)
 
-dna_seg1.3 <- dna_seg(k127_233705_df2)
+dna_seg1.3 <- dna_seg(k127_558051_df2)
 dna_segs.3 <- list(dna_seg1.3)
 
 dna_seg1.4 <- dna_seg(k127_173951_df2)
@@ -246,9 +306,9 @@ plot_gene_map(dna_segs.4,
               plot_new=TRUE,
               debug = 0)
 
-############### Figure 2: Viral fractional abundance changes upon induction, and select temperate phages experience a substantial increase ###############
-##### Figure 2b: Viral fractional abundance NMDS plot #####
-Biofilm_virus_abundances <- read_excel("/path/to/Supplementak_DataSheet6.xlsx")
+############### Figure 3: Viral fractional abundance changes upon induction, and select temperate phages experience a substantial increase ###############
+##### Figure 3b: Viral fractional abundance NMDS plot #####
+Biofilm_virus_abundances <- read_excel("/path/to/Supplemental_DataSheet8.xlsx")
 
 Biofilm_virus_abundances_wide <- Biofilm_virus_abundances %>% select(sample_type, sample, genome_id, FRACTIONAL_ABUNDANCE) %>% 
   pivot_wider(names_from = genome_id, values_from = FRACTIONAL_ABUNDANCE)
@@ -296,7 +356,7 @@ plot_2000 <- ggplot() +
   stat_ellipse(data=data.2000.scores.sample,aes(x=NMDS1,y=NMDS2, colour =sample_type), level =0.95) +
   coord_equal() + theme_bw() + scale_colour_manual(values=c('CT-PreInd'="#b9e1cd",'MC-PreInd'="#e0dd6c",'CT-12PostInd'="#ba5619",'MC-12PostInd'="#2a061b"))
 plot_2000
-##### Figure 2c: Change in viral fractional abundance boxplots #####
+##### Figure 3c: Change in viral fractional abundance boxplots #####
 viral_change_abundance <- Biofilm_virus_abundances_wide2 %>% summarize(
   genome_id = Biofilm_virus_abundances_wide2$genome_id,
   MC5_delta = ((Biofilm_virus_abundances_wide2$`MC-12PostInd-BF5` - Biofilm_virus_abundances_wide2$`MC-PreInd-BF5`)/Biofilm_virus_abundances_wide2$`MC-PreInd-BF5`)*100,
@@ -437,14 +497,14 @@ All_combined_simper_phages <- rbind(Combined_median_change_simper_phages_inf,Pha
 All_combined_simper_phages$Genome_ID <- gsub("_flag.*", "", All_combined_simper_phages$Genome_ID)
 All_combined_simper_phages$Genome_ID <- gsub("_megahit", "", All_combined_simper_phages$Genome_ID)
 
-mycolors2 <- (c("#ba5619","#b9e1cd"))
+mycolors2 <- (c("#90AfA0","#ba5619"))
 ggplot(All_combined_simper_phages, aes(fill =sample_type, x=median, y= reorder(Genome_ID, -median))) + 
   geom_bar(position="dodge", stat="identity") + 
   geom_errorbar(aes(x=median, y=Genome_ID, 
                     xmin=median-se, xmax=median+se), position=position_dodge(.9), width = 0.5) +
   scale_fill_manual(values= mycolors2) + theme_bw() 
 
-##### Figure 2d: Viral genome plots #####
+##### Figure 3d: Viral genome plots #####
 #seperate into the different genomes 
 k127_137292 <- phage_annotations %>% filter(name == "MC-12PostInd-BF3_megahit_k127_137292_flag_0_multi_26.9193_len_3350_extended_partial")
 k127_317508 <- phage_annotations %>% filter(name == "MC-12PostInd-BF4_megahit_k127_317508_flag_0_multi_92.9303_len_13319_extended_partial")
@@ -611,9 +671,9 @@ plot_gene_map(dna_segs.8,
               plot_new=TRUE,
               debug = 0)
 
-############### Figure 3: Bacterial community composition shifts upon prophage induction  ###############
-#######  bMAG relative abundance based figures (Supplemental Figure 1, Figure 3, and Supplemental Figure 2) ####### 
-bMAG_relative_abundance <- read_excel('/path/to/Supplemental_DataSheet2.xlsx')
+############### Figure 4: Bacterial community composition shifts upon prophage induction  ###############
+#######  bMAG relative abundance based figures (Supplemental Figure 1, Figure 4, and Supplemental Figure 2) ####### 
+bMAG_relative_abundance <- read_excel('/path/to/Supplemental_DataSheet1.xlsx')
 bMAG_relative_abundance_nobin11 <- bMAG_relative_abundance[bMAG_relative_abundance$Genomic_bins != "CT-12PostInd_bin.11", ]
 
 bMAG_relative_abundance_long <- bMAG_relative_abundance %>% 
@@ -656,7 +716,7 @@ plot(nmds.nobin11)
 goodness(nmds.nobin11)
 stressplot(nmds.nobin11)
 
-##### Figure 3a: bMAG fractional abundance NMDS plot #####
+##### Figure 4a: bMAG fractional abundance NMDS plot #####
 NMDS_matrix_flip <- as.matrix(bMAG_relative_abundance_nobin11[,9:28])
 head(NMDS_matrix_flip)
 nmds <- metaMDS(NMDS_matrix_flip, permutations = 9999, distance = "bray", k = 2 ,maxit = 999, trymax = 500,wascores = TRUE)
@@ -712,7 +772,7 @@ simper_summary_MC_MC <- simper_summary_MC_MC[simper_summary_MC_MC[, 7] < 0.05, ]
 simper_summary_MC_CT <- (bMAG.simper.summary[["MC-12PostInd_CT-12PostInd"]])
 simper_summary_MC_CT <- simper_summary_MC_CT[simper_summary_MC_CT[, 7] < 0.05, ]
 
-####### Figure 3b: Change in growth of SIMPER identified bMAGs ####### 
+####### Figure 4b: Change in growth of SIMPER identified bMAGs ####### 
 # Calculate change in growth for bMAGS
 bMAG_change_growth <- bMAG_relative_abundance_nobin11 %>% summarize(
   Genomic_bins = bMAG_relative_abundance_nobin11$Genomic_bins,
@@ -788,13 +848,13 @@ SIMPER_boxplot <- ggplot(SIMPER_bMAGs, aes(x=sample_type, y=genomes_per_million_
   method = "t.test", label = "p.signif") + facet_wrap(~Genomic_bins) 
 SIMPER_boxplot
 
-############### Figure 4: Prophage and host encoded AphA are divergent but have high structural similarity ###############
-###### Figure 4a: AphA protein phylogeny tree #####
+############### Figure 5: Prophage and host encoded AphA are divergent but have high structural similarity ###############
+###### Figure 5a: AphA protein phylogeny tree #####
 # The protein alignment and protein phylogeny tree was carried out using the online user interface version of MAFFT v7 
 # Thee tree newick file was uploaded to iTOL for visualization, annotations, and downloaded for minor aesethic changes 
 # in Adobe Illustrator
 
-###### Figure 4b: Structural alignment of prophage and host encoded AphA #####
+###### Figure 5b: Structural alignment of prophage and host encoded AphA #####
 # Protein files for AphA from both prophage.8 and it's host CT-PostInd-bin.5 were uploaded to 
 # AlphaFold Server all Alpha fold files for both structures were downloaded the protein structure files (.cif)
 # Were uploaded to locally installed ChimeraX were the matchmaker command was used to align the two proteins
@@ -807,8 +867,8 @@ SIMPER_boxplot
 # structures files (.cif) and predicted aligned error score files (.json) were uploaded and visualized with 
 # ChimeraX. Structure colors represent pLDDT scores 
 
-############### Figure 5: Bacterial metabolic capacity is altered post-induction ###############
-pathways_full <- read_excel('/path/to/Supplemental_DataSheet7.xlsx')
+############### Figure 6: Bacterial metabolic capacity is altered post-induction ###############
+pathways_full <- read_excel('/path/to/Supplemental_DataSheet10.xlsx')
 head(pathways_full)
 
 pathways_pathwise_great_70 <- filter(pathways_full, (pathwise_module_completeness>=0.70))
@@ -829,7 +889,7 @@ submodules_wide_presence <- submodules_wide_nona %>%
 # # table uploaded to iTOL to annotate bMAG ANI tree with submodule presence/absence data 
 # write.table(submodules_wide_presence, file='/path/to/outpuy/Biofilm_submodule_bMAG_presence.tsv', quote=FALSE, sep='\t')
 
-##### Figure 5b: Metabolism modules driving differences in post-induction samples #####
+##### Figure 6b: Metabolism modules driving differences in post-induction samples #####
 pathways_modules <- pathways_pathwise_great_70 %>% select(Genomic_bins, module_name)
 
 pathway_modules_RA <- merge(pathways_modules, bMAG_relative_abundance_nobin11_long, by = "Genomic_bins", allow.cartesian = TRUE)
@@ -877,63 +937,3 @@ pheatmap(mat = t(modules_simper_matrix), scale = "row",
          fontsize = 8, angle_col = 45, cellheight = 7, cellwidth = 7,
          cluster_rows=T, cluster_col=T, na_col = 'white',
          color=colorRampPalette(c("#cefae4","#e0dd6c","#ba5619","#2a061b"))(50))
-
-
-############### Figure 6: Sargassum-derived biofilm community members are present in situ  ###############
-##### Figure 6b: Biofilm induction temperate viruses are more abundant in situ  #####
-Biofilm_viruses_2021_metagenomes <- read_excel ("/path/to/Supplemental_DataSheet8.xlsx")
-
-Biofilm_viruses_abudance_medians <- Biofilm_viruses_abudance_info %>% group_by(Prediction, genome_id) %>% summarize(
-  genome_median = median(FRACTIONAL_ABUNDANCE))
-
-ggplot(Biofilm_viruses_abudance_medians, aes(x=genome_median, y=Prediction, fill = Prediction)) + 
-  geom_violin() + geom_boxplot(width=0.1, fill = 'white') + scale_x_continuous(trans = 'log10') +
-  scale_fill_manual(values= c("#ba5619", "#90AFA0")) + theme_bw()
-
-wilcox.test(FRACTIONAL_ABUNDANCE ~ Prediction, data = Biofilm_viruses_abudance_info)
-
-##### Figure 6c: Biofilm induction bMAGs are present in situ #####
-bMAG_2021_metagenomes <- read_excel("/path/to/Supplemental_DataSheet9.xlsx")
-
-bMAG_2021_metagenomes_longer <- bMAG_2021_metagenomes %>% select(Genomic_bins, `Sargasso-1`, `Sargasso-2`,
-  `Sargasso-3`, `Sargasso-4`, `Sargasso-6`,`Seawater-Sterivex1`, `Seawater-Sterivex2`, `Seawater-Sterivex3`, 
-  `Seawater-Sterivex4`, `Seawater-Sterivex5`) %>% 
-  pivot_longer(!Genomic_bins,  names_to = "replicate", values_to = "genomes_per_million_reads")
-
-bMAG_2021_metagenomes_longer$sample_type <- gsub("-.*", "", bMAG_2021_metagenomes_longer$replicate)
-
-bMAG_2021_metagenome_stats <- bMAG_2021_metagenomes_longer %>% group_by(Genomic_bins, sample_type) %>% summarize(
-  n = n(),
-  xbar = mean(genomes_per_million_reads),
-  median = median(genomes_per_million_reads),
-  sd = sd(genomes_per_million_reads),
-  se = sd/sqrt(n))
-
-bMAG_2021_metagenome_stats_tax <- bMAG_2021_metagenome_stats %>%
-  left_join(bMAG_2021_metagenomes %>% select(Genomic_bins, gtdb_tk_taxonomy), by = c("Genomic_bins" = "Genomic_bins"))
-
-Sargassum <- bMAG_2021_metagenome_stats_tax %>% filter(sample_type == "Sargasso") 
-Seawater <- bMAG_2021_metagenome_stats_tax %>% filter(sample_type == "Seawater") 
-
-Sargassum_bMAG_tax_filt <- Sargassum %>% filter(xbar > 0.5)
-
-Sargassum_05_bMAG_IDs <- Sargassum_bMAG_tax_filt %>% select(Genomic_bins)
-
-Seawater_bMAG_tax_filt <- merge(Seawater, Sargassum_05_bMAG_IDs, by = "Genomic_bins") %>% 
-  select(Genomic_bins, sample_type, n, xbar, median, sd, se, gtdb_tk_taxonomy)
-
-mycolors7 = c('#948816',"#e0dd6c",'#ba5619','#755e6b', "#90AFA0",'#cefae4')
-
-ggplot(Sargassum_bMAG_tax_filt, aes(x=xbar, y=reorder(Genomic_bins, -xbar), fill = gtdb_tk_taxonomy)) + 
-  geom_bar(stat = "identity") + geom_errorbar(aes(x=xbar, y=Genomic_bins, xmin=xbar-se, xmax=xbar+se), 
-  position=position_dodge(.9), width = 0.5) + theme_bw() + scale_fill_manual(values= mycolors7) + xlim(-0.5, 30)
-
-ggplot(Seawater_bMAG_tax_filt, aes(x=xbar, y=factor(Genomic_bins, levels = c('MC-PreInd_bin.2','CT-PreInd_bin.4',
-  'CT-12PostInd_bin.3', 'CT-PreInd_bin.8','CT-12PostInd_bin.10', 'CT-PreInd_bin.6', 'MC-12PostInd_bin.1',
-  'MC-PreInd_bin.3','CT-12PostInd_bin.1','CT-PreInd_bin.2','MC-12PostInd_bin.5','MC-PreInd_bin.8',
-  'MC-12PostInd_bin.7','CT-PreInd_bin.3', 'MC-PreInd_bin.1', 'CT-12PostInd_bin.5','CT-PreInd_bin.7')), fill = gtdb_tk_taxonomy)) + 
-  geom_bar(stat = "identity") + geom_errorbar(aes(x=xbar, y=Genomic_bins, xmin=xbar-se, xmax=xbar+se), 
-  position=position_dodge(.9), width = 0.5) + theme_bw() + scale_fill_manual(values= mycolors7) + xlim(-0.5, 30)
-
-
-VHR.simper.summary
